@@ -9,6 +9,7 @@ services:
       # Required service URLs and API keys. 
       # Local IPs or hostnames can be used for services 
       # running on the same Docker network (e.g. http://192.168.1.100:7878 or http://radarr:7878)
+      TAUTULLI_URL: "https://tautulli.example.com"
       TAUTULLI_API_KEY: ""
       RADARR_URL: "https://radarr.example.com"
       RADARR_API_KEY: ""
