@@ -11,10 +11,11 @@ const { Title } = Typography;
 
 export default function App() {
   const [users, setUsers] = useState([]);
-  const [genres, setGenres] = useState({ all: [], movies: [], shows: [], contentRatings: [] });
+  const [genres, setGenres] = useState({ all: [], movies: [], shows: [], contentRatings: [], diskPaths: [] });
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [includeWatchCount, setIncludeWatchCount] = useState(false);
   const [drawerItem, setDrawerItem] = useState(null);
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [messageApi, contextHolder] = message.useMessage();
@@ -33,6 +34,7 @@ export default function App() {
   const handleSearch = useCallback(async (filters) => {
     setSearching(true);
     setSearched(false);
+    setIncludeWatchCount(Boolean(filters.includeWatchCount));
     try {
       const data = await search(filters);
       setResults(data);
@@ -42,6 +44,16 @@ export default function App() {
     } finally {
       setSearching(false);
     }
+  }, []);
+
+  const handleItemsDeleted = useCallback((items) => {
+    const toDelete = new Set((items ?? []).map((item) => `${item.type}-${item.id}`));
+    if (toDelete.size === 0) return;
+    setResults((prev) => prev.filter((item) => !toDelete.has(`${item.type}-${item.id}`)));
+    setDrawerItem((current) => {
+      if (!current) return current;
+      return toDelete.has(`${current.type}-${current.id}`) ? null : current;
+    });
   }, []);
 
   return (
@@ -154,6 +166,8 @@ export default function App() {
             searched={searched}
             onRowClick={setDrawerItem}
             siderCollapsed={siderCollapsed}
+            includeWatchCount={includeWatchCount}
+            onItemsDeleted={handleItemsDeleted}
           />
         </Content>
       </Layout>

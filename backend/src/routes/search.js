@@ -27,6 +27,25 @@ function yearOf(isoString) {
   return new Date(isoString).getFullYear();
 }
 
+function normalizePath(pathValue) {
+  if (!pathValue) return null;
+  return String(pathValue).trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function matchesDiskPathFilter(item, selectedDiskPaths) {
+  if (!selectedDiskPaths.length) return true;
+
+  const candidates = [item.filePath, item.folderPath, item.rootFolderPath]
+    .map(normalizePath)
+    .filter(Boolean);
+
+  if (!candidates.length) return false;
+
+  return selectedDiskPaths.some((selected) =>
+    candidates.some((candidate) => candidate === selected || candidate.startsWith(`${selected}/`))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Build watched sets for the selected users
 // ---------------------------------------------------------------------------
@@ -44,8 +63,17 @@ function yearOf(isoString) {
  * discrepancies between Sonarr/Radarr metadata and Tautulli don't cause
  * watched items to slip through.
  */
-async function buildWatchedSets(userIds, includeMovies, includeShows) {
+function incrementWatchCount(map, key) {
+  if (!key) return;
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+async function buildWatchedData(userIds, includeMovies, includeShows) {
   const watched = {}; // { userId: Set<titleKey> }
+  const watchCounts = {
+    movie: new Map(),
+    show: new Map(),
+  };
 
   await Promise.all(
     userIds.map(async (userId) => {
@@ -83,19 +111,23 @@ async function buildWatchedSets(userIds, includeMovies, includeShows) {
             const keyNoYear   = tautulli.makeTitleKey(h.title, null);
             if (keyWithYear) userWatched.add(keyWithYear);
             if (keyNoYear)   userWatched.add(keyNoYear);
+
+            incrementWatchCount(watchCounts.movie, keyWithYear ?? keyNoYear);
           } else {
             // episode — grandparent_title is the show title
             const keyWithYear = tautulli.makeTitleKey(h.grandparent_title, h.year);
             const keyNoYear   = tautulli.makeTitleKey(h.grandparent_title, null);
             if (keyWithYear) userWatched.add(keyWithYear);
             if (keyNoYear)   userWatched.add(keyNoYear);
+
+            incrementWatchCount(watchCounts.show, keyWithYear ?? keyNoYear);
           }
         }
       }
     })
   );
 
-  return { watched };
+  return { watched, watchCounts };
 }
 
 /**
@@ -133,7 +165,15 @@ router.post('/', async (req, res) => {
       minRuntime = null,
       maxRuntime = null,
       showStatus = [],         // 'continuing' | 'ended'
+      watchedMode = 'unwatched', // 'unwatched' | 'watched' | 'any'
+      diskPaths = [],
+      includeWatchCount = false,
     } = req.body;
+
+    const normalizedWatchedMode = ['unwatched', 'watched', 'any'].includes(watchedMode)
+      ? watchedMode
+      : 'unwatched';
+    const normalizedDiskPaths = (diskPaths ?? []).map(normalizePath).filter(Boolean);
 
     // ------------------------------------------------------------------
     // 1. Fetch media from Radarr / Sonarr
@@ -151,10 +191,21 @@ router.post('/', async (req, res) => {
     // 2. Build watched sets (only if users were selected)
     // ------------------------------------------------------------------
     let watched = {};
+    let watchCounts = { movie: new Map(), show: new Map() };
 
-    if (userIds.length > 0) {
-      const result = await buildWatchedSets(userIds, includeMovies, includeShows);
+    let countUserIds = userIds;
+    if (includeWatchCount && userIds.length === 0) {
+      const tautulliUsers = await historyCache.getOrFetch('tautulli:users', () => tautulli.getUsers());
+      countUserIds = (tautulliUsers ?? [])
+        .map((u) => Number(u.user_id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    }
+
+    const needsWatchData = countUserIds.length > 0 && (normalizedWatchedMode !== 'any' || includeWatchCount);
+    if (needsWatchData) {
+      const result = await buildWatchedData(countUserIds, includeMovies, includeShows);
       watched = result.watched;
+      watchCounts = result.watchCounts;
     }
 
     // ------------------------------------------------------------------
@@ -190,15 +241,26 @@ router.post('/', async (req, res) => {
         if (maxRuntime != null && (movie.runtime ?? 0) > maxRuntime) continue;
 
         // Watch status filter
-        if (userIds.length > 0) {
+        if (userIds.length > 0 && normalizedWatchedMode !== 'any') {
           const key       = tautulli.makeTitleKey(movie.title, movie.year);
           const keyNoYear = tautulli.makeTitleKey(movie.title, null);
-          if (!isUnwatchedByAll(key, keyNoYear, userIds, watched)) continue;
+          const unwatchedByAll = isUnwatchedByAll(key, keyNoYear, userIds, watched);
+          if (normalizedWatchedMode === 'unwatched' && !unwatchedByAll) continue;
+          if (normalizedWatchedMode === 'watched' && unwatchedByAll) continue;
         }
+
+        if (!matchesDiskPathFilter(movie, normalizedDiskPaths)) continue;
+
+        const titleKey = tautulli.makeTitleKey(movie.title, movie.year);
+        const fallbackTitleKey = tautulli.makeTitleKey(movie.title, null);
+        const watchCount = includeWatchCount
+          ? (watchCounts.movie.get(titleKey) ?? watchCounts.movie.get(fallbackTitleKey) ?? 0)
+          : undefined;
 
         results.push({
           ...radarr.normalizeMovie(movie),
           posterPath: `/api/image/movie/${movie.id}/poster`,
+          ...(includeWatchCount ? { watchCount } : {}),
         });
       }
     }
@@ -236,16 +298,27 @@ router.post('/', async (req, res) => {
         if (showStatus.length > 0 && !showStatus.includes(show.status)) continue;
 
         // Watch status filter
-        if (userIds.length > 0) {
+        if (userIds.length > 0 && normalizedWatchedMode !== 'any') {
           const key       = tautulli.makeTitleKey(show.title, show.year);
           const keyNoYear = tautulli.makeTitleKey(show.title, null);
-          if (!isUnwatchedByAll(key, keyNoYear, userIds, watched)) continue;
+          const unwatchedByAll = isUnwatchedByAll(key, keyNoYear, userIds, watched);
+          if (normalizedWatchedMode === 'unwatched' && !unwatchedByAll) continue;
+          if (normalizedWatchedMode === 'watched' && unwatchedByAll) continue;
         }
+
+        if (!matchesDiskPathFilter(show, normalizedDiskPaths)) continue;
+
+        const titleKey = tautulli.makeTitleKey(show.title, show.year);
+        const fallbackTitleKey = tautulli.makeTitleKey(show.title, null);
+        const watchCount = includeWatchCount
+          ? (watchCounts.show.get(titleKey) ?? watchCounts.show.get(fallbackTitleKey) ?? 0)
+          : undefined;
 
         const norm = sonarr.normalizeSeries(show);
         results.push({
           ...norm,
           posterPath: `/api/image/show/${show.id}/poster`,
+          ...(includeWatchCount ? { watchCount } : {}),
         });
       }
     }

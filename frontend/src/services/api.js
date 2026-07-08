@@ -26,3 +26,23 @@ export const getShowMetadata = (id) => apiFetch(`/metadata/show/${id}`);
 
 export const getTautulliMetadata = (ratingKey) =>
   apiFetch(`/metadata/tautulli/${ratingKey}`);
+
+export const deleteOneMedia = ({ type, id, action = 'delete', deleteFiles = true, addExclusion = false }) =>
+  apiFetch('/media/delete-one', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, id, action, deleteFiles, addExclusion }),
+  });
+
+export const deleteBulkMedia = ({
+  items,
+  action = 'delete',
+  deleteFiles = true,
+  addExclusion = false,
+  concurrency = 3,
+}) =>
+  apiFetch('/media/delete-bulk', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, action, deleteFiles, addExclusion, concurrency }),
+  });

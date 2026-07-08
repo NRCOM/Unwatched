@@ -8,6 +8,7 @@ const genresRouter = require('./routes/genres');
 const searchRouter = require('./routes/search');
 const metadataRouter = require('./routes/metadata');
 const imagesRouter = require('./routes/images');
+const mediaRouter = require('./routes/media');
 
 const app = express();
 const PORT = process.env.BACKEND_PORT ?? 3001;
@@ -24,6 +25,7 @@ app.use('/api/genres', genresRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/metadata', metadataRouter);
 app.use('/api/image', imagesRouter);
+app.use('/api/media', mediaRouter);
 
 if (process.env.NODE_ENV === 'production') {
   const publicDir = path.join(__dirname, '..', 'public');

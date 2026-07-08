@@ -26,6 +26,32 @@ async function getSeries(seriesId) {
   return response.data;
 }
 
+async function deleteSeries(seriesId, options = {}) {
+  const {
+    deleteFiles = true,
+    addImportListExclusion = false,
+  } = options;
+
+  await client.delete(`/series/${seriesId}`, {
+    params: {
+      deleteFiles,
+      addImportListExclusion,
+    },
+  });
+
+  return { id: Number(seriesId), deleted: true };
+}
+
+async function unmonitorSeries(seriesId) {
+  const series = await getSeries(seriesId);
+  await client.put(`/series/${seriesId}`, {
+    ...series,
+    monitored: false,
+  });
+
+  return { id: Number(seriesId), monitored: false };
+}
+
 function getPosterUrl(seriesId, size = '') {
   const filename = size ? `poster-${size}.jpg` : 'poster.jpg';
   return `${BASE_URL}/api/v3/mediacover/${seriesId}/${filename}?apikey=${API_KEY}`;
@@ -58,6 +84,9 @@ function normalizeSeries(show) {
     imdbId: show.imdbId ?? null,
     firstAired: show.firstAired ?? null,
     added: show.added ?? null,
+    rootFolderPath: show.rootFolderPath ?? null,
+    folderPath: show.path ?? null,
+    filePath: show.path ?? null,
     monitored: show.monitored ?? true,
     ratings: {
       // Sonarr v3 ratings come from TVDB
@@ -68,4 +97,11 @@ function normalizeSeries(show) {
   };
 }
 
-module.exports = { getAllSeries, getSeries, getPosterUrl, normalizeSeries };
+module.exports = {
+  getAllSeries,
+  getSeries,
+  deleteSeries,
+  unmonitorSeries,
+  getPosterUrl,
+  normalizeSeries,
+};

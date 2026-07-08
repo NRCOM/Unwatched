@@ -26,6 +26,32 @@ async function getMovie(movieId) {
   return response.data;
 }
 
+async function deleteMovie(movieId, options = {}) {
+  const {
+    deleteFiles = true,
+    addImportExclusion = false,
+  } = options;
+
+  await client.delete(`/movie/${movieId}`, {
+    params: {
+      deleteFiles,
+      addImportExclusion,
+    },
+  });
+
+  return { id: Number(movieId), deleted: true };
+}
+
+async function unmonitorMovie(movieId) {
+  const movie = await getMovie(movieId);
+  await client.put('/movie', {
+    ...movie,
+    monitored: false,
+  });
+
+  return { id: Number(movieId), monitored: false };
+}
+
 function getPosterUrl(movieId, size = '') {
   const filename = size ? `poster-${size}.jpg` : 'poster.jpg';
   return `${BASE_URL}/api/v3/mediacover/${movieId}/${filename}?apikey=${API_KEY}`;
@@ -54,6 +80,9 @@ function normalizeMovie(movie) {
     physicalRelease: movie.physicalRelease ?? movie.digitalRelease ?? null,
     added: movie.added ?? null,
     hasFile: movie.hasFile ?? false,
+    rootFolderPath: movie.rootFolderPath ?? null,
+    folderPath: movie.path ?? null,
+    filePath: movie.movieFile?.path ?? movie.path ?? null,
     monitored: movie.monitored ?? true,
     ratings: {
       tmdb: ratings.tmdb?.value ?? null,
@@ -66,4 +95,11 @@ function normalizeMovie(movie) {
   };
 }
 
-module.exports = { getAllMovies, getMovie, getPosterUrl, normalizeMovie };
+module.exports = {
+  getAllMovies,
+  getMovie,
+  deleteMovie,
+  unmonitorMovie,
+  getPosterUrl,
+  normalizeMovie,
+};
