@@ -1,9 +1,9 @@
 <div align="center">
 
 # 🎬 UNWATCHED
-### Plex Discovery — Find what nobody has seen yet
+### Plex Discovery + Cleanup — Find what to watch or what to prune
 
-**Unwatched** is a self-hosted dark-mode web app that cross-references your **Radarr**, **Sonarr**, and **Tautulli** libraries to surface movies and TV shows that one or more of your Plex users haven't watched yet.
+**Unwatched** is a self-hosted dark-mode web app that cross-references your **Radarr**, **Sonarr**, and **Tautulli** libraries to surface movies and TV shows by watch status, and now supports cleanup actions for deletion and unmonitoring workflows.
 
 <!-- [![Patreon](https://img.shields.io/badge/Support-Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://patreon.com/NRCOM) -->
 [![GitHub](https://img.shields.io/badge/GitHub-Unwatched-181717?style=for-the-badge&logo=github)](https://github.com/NRCOM/Unwatched)
@@ -21,10 +21,13 @@
 
 ## ✨ Features
 
-- **Multi-user watch filtering** — select one or more Plex users; only content unwatched by *all* selected users is returned
+- **Multi-user watch filtering** — select one or more Plex users and switch between **Unwatched**, **Watched**, or **Any** watch-status modes
+- **Watch count insights** — optionally add a watch-count column sourced from Tautulli history (selected users or all users)
 - **Movies & TV shows** — pulls your full Radarr and Sonarr libraries in one view
-- **Rich filters** — genre, release year range, rating provider (TMDB / IMDb / Rotten Tomatoes / Metacritic / TVDB), content rating, runtime, and show status
+- **Rich filters** — genre, release year range, rating provider (TMDB / IMDb / Rotten Tomatoes / Metacritic / TVDB), content rating, runtime, show status, and **disk/path** mount points
 - **Sortable, filterable table** — sort by title, year, popularity, rating, runtime, studio/network, or date added
+- **Library cleanup workflows** — run single or bulk actions to **Delete** or **Unmonitor** content through Radarr/Sonarr
+- **Delete policy controls** — choose whether to delete files from disk and add exclusion rules to reduce re-fetches
 - **Detail drawer** — click any row for a full metadata panel with ratings, runtime, trailer link, overview, and external links (IMDb, TMDB, TVDB)
 - **Persistent search state** — filter selections are saved across page refreshes; only cleared when you hit Reset
 - **Collapsible sidebar** — collapse the search panel for a full-width results view with a single click
@@ -180,12 +183,33 @@ Unwatched does not include built-in user authentication. It is intended to run l
 
 ## 🔍 How It Works
 
-1. **Library fetch** — Radarr and Sonarr provide the full catalog of downloaded movies and series
-2. **Watch history** — Tautulli `get_history` is called per user (paginated) to build a set of watched titles
-3. **Cross-reference** — Each item's normalised title key (lowercase, article-stripped, non-word chars removed) is compared against the watched sets for all selected users
-4. **Result** — Only items unwatched by *every* selected user are returned
+1. **Library fetch** — Radarr and Sonarr provide the full catalog of movies and series (including root-folder paths for disk filtering)
+2. **Watch history** — Tautulli history is fetched (paginated) to build watched sets and watch-count aggregates
+3. **Cross-reference** — Each item's normalized title key is compared against watched sets according to the selected watch-status mode
+4. **Result + actions** — Return matching media with optional watch counts, then optionally run bulk or single **Delete** / **Unmonitor** actions through Radarr/Sonarr
 
 Results and watch history are cached in memory (10-minute TTL for library data, 3-minute TTL for history) to keep the UI snappy.
+
+---
+
+## 🧹 Media Cleanup
+
+Unwatched now includes cleanup actions in the results table for both single-item and bulk operations.
+
+- **Action: Delete**
+    - **Delete files = on, Add exclusion = on**: removes media files from disk and adds an exclusion rule in Radarr/Sonarr to reduce re-fetches.
+    - **Delete files = on, Add exclusion = off**: removes media files from disk but does not create an exclusion rule.
+    - **Delete files = off**: removes the media entry from Radarr/Sonarr while keeping files on disk.
+- **Action: Unmonitor**
+    - Keeps the media in Radarr/Sonarr but sets it to unmonitored so it will not be fetched again automatically.
+
+### Suggested Usage
+
+- Use **Delete + files + exclusion** when reclaiming disk space on a full mount and you do not want the title returning.
+- Use **Delete without file removal** when you are cleaning application state but keeping media files for manual handling.
+- Use **Unmonitor** when you want to keep current files but stop future monitoring/reacquisition.
+
+> Cleanup actions are destructive when file deletion is enabled. Verify selection and policy before confirming bulk operations.
 
 ---
 

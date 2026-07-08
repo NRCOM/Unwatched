@@ -5,7 +5,7 @@ const { mediaCache } = require('../utils/cache');
 
 const router = Router();
 
-// GET /api/genres  — returns { movies: [...], shows: [...], all: [...] }
+// GET /api/genres  — returns { movies: [...], shows: [...], all: [...], diskPaths: [...] }
 router.get('/', async (_req, res) => {
   try {
     const [movies, series] = await Promise.all([
@@ -28,12 +28,16 @@ router.get('/', async (_req, res) => {
     const movieCerts = new Set(movies.map((m) => m.certification).filter(Boolean));
     const showCerts = new Set(series.map((s) => s.certification).filter(Boolean));
     const allCerts = [...new Set([...movieCerts, ...showCerts])].sort();
+    const moviePaths = new Set(movies.map((m) => m.rootFolderPath).filter(Boolean));
+    const showPaths = new Set(series.map((s) => s.rootFolderPath).filter(Boolean));
+    const diskPaths = [...new Set([...moviePaths, ...showPaths])].sort();
 
     res.json({
       movies: [...movieGenres].sort(),
       shows: [...showGenres].sort(),
       all: [...all].sort(),
       contentRatings: allCerts,
+      diskPaths,
     });
   } catch (err) {
     console.error('[genres]', err.message);

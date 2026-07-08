@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Table, Tag, Space, Typography, Empty, Badge, Input, Select } from 'antd';
-import { VideoCameraOutlined, DesktopOutlined, StarFilled, SearchOutlined } from '@ant-design/icons';
+import { Table, Tag, Space, Typography, Empty, Badge, Input, Select, Button, Modal, message, Checkbox } from 'antd';
+import { VideoCameraOutlined, DesktopOutlined, StarFilled, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import { genreTagColor } from '../utils/genres';
+import { deleteOneMedia, deleteBulkMedia } from '../services/api';
 
 const { Text } = Typography;
 
@@ -19,9 +20,24 @@ function getRatingDisplay(item) {
   return r.tvdb ?? null;
 }
 
-export default function ResultsTable({ data, loading, searched, onRowClick, siderCollapsed }) {
+export default function ResultsTable({
+  data,
+  loading,
+  searched,
+  onRowClick,
+  siderCollapsed,
+  includeWatchCount,
+  onItemsDeleted,
+}) {
+  const [modal, modalContextHolder] = Modal.useModal();
+  const [messageApi, messageContextHolder] = message.useMessage();
   const [tableSearch, setTableSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+  const [actionMode, setActionMode] = useState('delete');
+  const [deleteFiles, setDeleteFiles] = useState(true);
+  const [addExclusion, setAddExclusion] = useState(true);
 
   const filtered = useMemo(() => {
     let d = data;
@@ -32,11 +48,125 @@ export default function ResultsTable({ data, loading, searched, onRowClick, side
         (i) =>
           i.title.toLowerCase().includes(q) ||
           (i.genres ?? []).some((g) => g.toLowerCase().includes(q)) ||
-          (i.studio ?? i.network ?? '').toLowerCase().includes(q)
+          (i.studio ?? i.network ?? '').toLowerCase().includes(q) ||
+          (i.rootFolderPath ?? '').toLowerCase().includes(q)
       );
     }
     return d;
   }, [data, typeFilter, tableSearch]);
+
+  const selectedItems = data.filter((item) => selectedRowKeys.includes(`${item.type}-${item.id}`));
+
+  const actionLabel = actionMode === 'delete' ? 'Delete' : 'Unmonitor';
+  const actionLabelPast = actionMode === 'delete' ? 'Deleted' : 'Unmonitored';
+  const actionLabelLower = actionMode === 'delete' ? 'delete' : 'unmonitor';
+
+  function buildActionSummary() {
+    if (actionMode === 'unmonitor') {
+      return 'This will keep the media in Radarr/Sonarr but set monitored to off so it is not fetched again.';
+    }
+
+    if (deleteFiles && addExclusion) {
+      return 'This will remove media files from disk and add an import exclusion to reduce re-fetches.';
+    }
+
+    if (deleteFiles) {
+      return 'This will remove media files from disk via Sonarr/Radarr.';
+    }
+
+    return 'This will remove the media entry from Sonarr/Radarr while keeping files on disk.';
+  }
+
+  async function handleDeleteOne(record) {
+    setDeleting(true);
+    try {
+      await deleteOneMedia({
+        type: record.type,
+        id: record.id,
+        action: actionMode,
+        deleteFiles,
+        addExclusion,
+      });
+      messageApi.success(`${actionLabelPast} ${record.title}`);
+      setSelectedRowKeys((keys) => keys.filter((k) => k !== `${record.type}-${record.id}`));
+      if (actionMode === 'delete') {
+        onItemsDeleted?.([{ type: record.type, id: record.id }]);
+      }
+    } catch (err) {
+      messageApi.error(`Failed to ${actionLabelLower} ${record.title}: ${err.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function confirmDeleteOne(record) {
+    modal.confirm({
+      centered: true,
+      title: `${actionLabel} ${record.title}?`,
+      content: buildActionSummary(),
+      okText: actionMode === 'delete' ? 'Apply delete policy' : 'Unmonitor media',
+      okButtonProps: { danger: actionMode === 'delete' },
+      cancelText: 'Cancel',
+      styles: {
+        content: { background: '#1f1f1f' },
+        header: { background: '#1f1f1f' },
+        body: { color: '#d9d9d9' },
+        footer: { background: '#1f1f1f' },
+      },
+      onOk: () => handleDeleteOne(record),
+    });
+  }
+
+  function confirmBulkDelete() {
+    if (selectedItems.length === 0) return;
+    modal.confirm({
+      centered: true,
+      title: `${actionLabel} ${selectedItems.length} selected item${selectedItems.length !== 1 ? 's' : ''}?`,
+      content: `${buildActionSummary()} Failed operations will be reported.`,
+      okText: actionMode === 'delete' ? 'Apply delete policy' : 'Unmonitor selected',
+      okButtonProps: { danger: actionMode === 'delete' },
+      cancelText: 'Cancel',
+      styles: {
+        content: { background: '#1f1f1f' },
+        header: { background: '#1f1f1f' },
+        body: { color: '#d9d9d9' },
+        footer: { background: '#1f1f1f' },
+      },
+      onOk: async () => {
+        setDeleting(true);
+        try {
+          const response = await deleteBulkMedia({
+            items: selectedItems.map((item) => ({ type: item.type, id: item.id })),
+            action: actionMode,
+            deleteFiles,
+            addExclusion,
+            concurrency: 3,
+          });
+
+          const deletedItems = response.deleted ?? [];
+          const failedItems = response.failed ?? [];
+
+          if (deletedItems.length > 0 && actionMode === 'delete') {
+            onItemsDeleted?.(deletedItems.map((item) => ({ type: item.type, id: item.id })));
+          }
+
+          if (failedItems.length > 0) {
+            messageApi.warning(
+              `${actionLabelPast} ${deletedItems.length} item${deletedItems.length !== 1 ? 's' : ''}, ${failedItems.length} failed`
+            );
+          } else {
+            messageApi.success(`${actionLabelPast} ${deletedItems.length} item${deletedItems.length !== 1 ? 's' : ''}`);
+          }
+
+          setSelectedRowKeys([]);
+        } catch (err) {
+          messageApi.error(`Bulk ${actionLabelLower} failed: ${err.message}`);
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
+  }
 
   // When sidebar is open use fixed widths; when collapsed let columns distribute evenly.
   const w = siderCollapsed
@@ -219,6 +349,18 @@ export default function ResultsTable({ data, loading, searched, onRowClick, side
         <Text type="secondary">{record.studio ?? record.network ?? '—'}</Text>
       ),
     },
+    ...(includeWatchCount
+      ? [
+          {
+            title: 'Watch Count',
+            dataIndex: 'watchCount',
+            key: 'watchCount',
+            width: 110,
+            sorter: (a, b) => (a.watchCount ?? 0) - (b.watchCount ?? 0),
+            render: (val) => <Text>{val ?? 0}</Text>,
+          },
+        ]
+      : []),
     {
       title: 'Added',
       dataIndex: 'added',
@@ -234,10 +376,31 @@ export default function ResultsTable({ data, loading, searched, onRowClick, side
           <Text type="secondary">—</Text>
         ),
     },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 110,
+      render: (_, record) => (
+        <Button
+          type="text"
+          danger={actionMode === 'delete'}
+          size="small"
+          icon={<DeleteOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            confirmDeleteOne(record);
+          }}
+        >
+          {actionLabel}
+        </Button>
+      ),
+    },
   ];
 
   return (
     <div>
+      {modalContextHolder}
+      {messageContextHolder}
       {/* Table-level quick filters */}
       <Space style={{ marginBottom: 16, flexWrap: 'wrap' }} size={8}>
         <Input
@@ -264,6 +427,42 @@ export default function ResultsTable({ data, loading, searched, onRowClick, side
           {filtered.length} result{filtered.length !== 1 ? 's' : ''}
           {data.length !== filtered.length ? ` (filtered from ${data.length})` : ''}
         </Text>
+        <Select
+          value={actionMode}
+          onChange={setActionMode}
+          size="small"
+          style={{ width: 130 }}
+          options={[
+            { value: 'delete', label: 'Delete' },
+            { value: 'unmonitor', label: 'Unmonitor' },
+          ]}
+        />
+        <Checkbox
+          checked={deleteFiles}
+          disabled={actionMode !== 'delete'}
+          onChange={(e) => setDeleteFiles(e.target.checked)}
+          style={{ color: '#aaa' }}
+        >
+          Delete files
+        </Checkbox>
+        <Checkbox
+          checked={addExclusion}
+          disabled={actionMode !== 'delete'}
+          onChange={(e) => setAddExclusion(e.target.checked)}
+          style={{ color: '#aaa' }}
+        >
+          Add exclusion
+        </Checkbox>
+        <Button
+          danger={actionMode === 'delete'}
+          icon={<DeleteOutlined />}
+          size="small"
+          disabled={selectedItems.length === 0 || deleting}
+          loading={deleting}
+          onClick={confirmBulkDelete}
+        >
+          {actionLabel} Selected ({selectedItems.length})
+        </Button>
       </Space>
 
       <Table
@@ -271,16 +470,21 @@ export default function ResultsTable({ data, loading, searched, onRowClick, side
         dataSource={filtered}
         loading={loading}
         rowKey={(r) => `${r.type}-${r.id}`}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+          preserveSelectedRowKeys: true,
+        }}
         size="small"
         locale={{
           emptyText: searched ? (
             <Empty
-              description="No unwatched media matched your filters"
+              description="No media matched your filters"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
             <Empty
-              description="Use the panel on the left to search for unwatched media"
+              description="Use the panel on the left to search your media library"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ),

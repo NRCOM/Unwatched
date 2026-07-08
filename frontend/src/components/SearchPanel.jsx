@@ -4,6 +4,7 @@ import {
   Select,
   Slider,
   Button,
+  Checkbox,
   DatePicker,
   Divider,
   Space,
@@ -27,6 +28,12 @@ const RATING_PROVIDERS = [
 const SHOW_STATUSES = [
   { value: 'continuing', label: 'Continuing' },
   { value: 'ended', label: 'Ended' },
+];
+
+const WATCHED_MODES = [
+  { value: 'unwatched', label: 'Unwatched by all selected users' },
+  { value: 'watched', label: 'Watched by at least one selected user' },
+  { value: 'any', label: 'Any watch status' },
 ];
 
 const STORAGE_KEY = 'unwatched:searchParams';
@@ -79,7 +86,9 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
       userIds: values.userIds ?? [],
       includeMovies,
       includeShows,
+      watchedMode: values.watchedMode ?? 'unwatched',
       genres: values.genres ?? [],
+      diskPaths: values.diskPaths ?? [],
       yearRange,
       minRating: values.minRating ?? 0,
       ratingProvider: values.ratingProvider ?? 'tmdb',
@@ -87,6 +96,7 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
       minRuntime: values.minRuntime ?? null,
       maxRuntime: values.maxRuntime ?? null,
       showStatus: values.showStatus ?? [],
+      includeWatchCount: values.includeWatchCount ?? false,
     });
   };
 
@@ -111,7 +121,7 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
         strong
         style={{ display: 'block', marginBottom: 8, color: '#e5a00d', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' }}
       >
-        Search Unwatched
+        Search Library
       </Text>
 
       <Form
@@ -121,6 +131,8 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
         initialValues={{
           ratingProvider: 'tmdb',
           minRating: 0,
+          watchedMode: 'unwatched',
+          includeWatchCount: false,
         }}
         size="small"
       >
@@ -167,6 +179,10 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
 
         <Divider style={{ borderColor: '#2a2a2a', margin: '8px 0' }} />
 
+        <Form.Item label={<span style={{ color: '#aaa' }}>Watch Status</span>} name="watchedMode">
+          <Select options={WATCHED_MODES} />
+        </Form.Item>
+
         {/* Genres */}
         <Form.Item label={<span style={{ color: '#aaa' }}>Genre</span>} name="genres">
           <Select
@@ -175,6 +191,19 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
             placeholder="All genres"
             optionFilterProp="label"
             options={allGenres.map((g) => ({ value: g, label: g }))}
+          />
+        </Form.Item>
+
+        <Form.Item label={<span style={{ color: '#aaa' }}>Disk / Path</span>} name="diskPaths">
+          <Select
+            mode="multiple"
+            allowClear
+            placeholder="All disks / mount points"
+            optionFilterProp="label"
+            options={(genres.diskPaths ?? []).map((pathValue) => ({
+              value: pathValue,
+              label: pathValue,
+            }))}
           />
         </Form.Item>
 
@@ -255,6 +284,10 @@ export default function SearchPanel({ users, genres, onSearch, searching }) {
             />
           </Form.Item>
         )}
+
+        <Form.Item name="includeWatchCount" valuePropName="checked" style={{ marginBottom: 8 }}>
+          <Checkbox style={{ color: '#aaa' }}>Include watch count column</Checkbox>
+        </Form.Item>
 
         <Divider style={{ borderColor: '#2a2a2a', margin: '12px 0' }} />
 
